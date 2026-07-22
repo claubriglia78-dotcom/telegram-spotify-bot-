@@ -10,7 +10,6 @@ if (!BOT_TOKEN) {
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Expresión regular para extraer links de Spotify
 function extraerURLSpotify(texto: string): string | null {
   const match = texto.match(/https?:\/\/(open\.spotify\.com\/track\/[a-zA-Z0-9]+)/);
   return match ? `https://${match[1]}` : null;
@@ -23,37 +22,46 @@ bot.on('text', async (ctx) => {
   await ctx.reply("Descargando... espera unos segundos ⌛");
 
   try {
-    // Llamada a API de descarga directa de Spotify
-    const apiUrl = `https://api.fabdl.com/spotify/get?url=${encodeURIComponent(url)}`;
-    const response = await axios.get(apiUrl);
-
-    if (!response.data || !response.data.result) {
-      return ctx.reply("No se pudo obtener la información de la canción.");
-    }
-
-    const result = response.data.result;
-    const downloadConvertUrl = `https://api.fabdl.com/spotify/mp3-convert-task/${result.gid}/${result.id}`;
-    const convertResponse = await axios.get(downloadConvertUrl);
-
-    if (!convertResponse.data || !convertResponse.data.result || !convertResponse.data.result.download_url) {
-      return ctx.reply("No se pudo procesar la descarga de la canción.");
-    }
-
-    const downloadUrl = `https://api.fabdl.com/${convertResponse.data.result.download_url}`;
-
-    // Enviar el audio directamente por Telegram a través del link
-    await ctx.replyWithAudio(
-      { url: downloadUrl },
-      { title: result.name, performer: result.artists }
+    // Usamos la API pública de Spotidown
+    const res = await axios.post(
+      'https://spotidown.com/api/download-track',
+      { url: url },
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://spotidown.com/'
+        }
+      }
     );
 
+    if (res.data && res.data.file_url) {
+      await ctx.replyWithAudio(
+        { url: res.data.file_url },
+        { 
+          title: res.data.title || "Canción", 
+          performer: res.data.artist || "Artista" 
+        }
+      );
+    } else {
+      // Intento con API alternativa si la primera falla
+      const altRes = await axios.get(`https://api.spotifydown.com/download/${url.split('/track/')[1]}`, {
+        headers: { 'Origin': 'https://spotifydown.com', 'Referer': 'https://spotifydown.com/' }
+      });
+
+      if (altRes.data && altRes.data.link) {
+        await ctx.replyWithAudio({ url: altRes.data.link });
+      } else {
+        ctx.reply("No se pudo procesar el enlace. Intenta con otro tema.");
+      }
+    }
+
   } catch (error: any) {
-    console.error("Error en descarga:", error);
-    ctx.reply("No se pudo descargar la canción. Intenta nuevamente.");
+    console.error("Error en descarga:", error?.response?.data || error.message);
+    ctx.reply("Hubo un error al obtener la canción. Reintenta en unos instantes.");
   }
 });
 
-// Servidor web express para Render
+// Servidor express para Render
 const app = express();
 app.get('/', (_req, res) => res.send("Bot activo 24/7"));
 const PORT = process.env.PORT || 3000;
@@ -61,4 +69,3 @@ app.listen(PORT, () => console.log(`Servidor activo en puerto ${PORT}`));
 
 bot.launch();
 console.log("Bot iniciado");
-
