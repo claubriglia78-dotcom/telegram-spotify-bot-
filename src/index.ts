@@ -43,7 +43,7 @@ bot.catch((err) => console.error("Error", err));
 // SERVIDOR PARA RAILWAY
 const app = express();
 app.get("/", (req, res) => res.send("Bot activo 24/7"));
-app.listen(3000, () => console.log("Web server ok"));
+app.listen(process.env.PORT || 3000, () => console.log("Web server ok"));
 
 bot.launch();
 console.log("Bot iniciado");
