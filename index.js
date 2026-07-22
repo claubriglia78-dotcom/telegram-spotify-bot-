@@ -23,69 +23,54 @@ bot.on('text', async (ctx) => {
   await ctx.reply("Procesando canción ⌛");
 
   try {
-    // 1. Obtener detalles de la canción
+    // 1. Obtener datos oficiales del tema
     const spotifyUrl = `https://open.spotify.com/track/${trackId}`;
     const oembedRes = await axios.get(`https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`);
     
     const titulo = oembedRes.data.title || "Canción";
     const artista = oembedRes.data.author_name || "";
-    const busqueda = artista ? `${artista} - ${titulo}` : titulo;
+    const busqueda = artista ? `${artista} ${titulo}` : titulo;
 
-    await ctx.reply(`Buscando: **${busqueda}**...`, { parse_mode: 'Markdown' });
+    await ctx.reply(`Buscando audio para: **${busqueda}**...`, { parse_mode: 'Markdown' });
+
+    // 2. Obtener MP3 mediante API de conversión directa
+    const downloadApi = `https://api.cobalt.tools/api/json`;
+    
+    // Probar con API alternativa ultra rápida
+    const ytdlRes = await axios.get(`https://api.siputzx.my.id/api/d/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/results?search_query=${encodeURIComponent(busqueda)}`)}`).catch(() => null);
 
     let audioUrl = null;
 
-    // Intento 1: API SpotifyDownload
-    try {
-      const res1 = await axios.get(`https://api.spotifydown.com/download/${trackId}`, {
-        headers: {
-          'Origin': 'https://spotifydown.com',
-          'Referer': 'https://spotifydown.com/'
-        },
-        timeout: 8000
-      });
-      if (res1.data && res1.data.success && res1.data.link) {
-        audioUrl = res1.data.link;
-      }
-    } catch (e) {
-      console.log("Servidor 1 no disponible, intentando servidor secundario...");
-    }
-
-    // Intento 2: API alternativa de respaldo si falló la primera
-    if (!audioUrl) {
-      try {
-        const res2 = await axios.get(`https://api.fabdl.com/spotify/get?url=${encodeURIComponent(spotifyUrl)}`, {
-          timeout: 8000
-        });
-        if (res2.data && res2.data.result) {
-          const { gid, id } = res2.data.result;
-          const convertRes = await axios.get(`https://api.fabdl.com/spotify/mp3-convert-task/${gid}/${id}`);
-          if (convertRes.data && convertRes.data.result && convertRes.data.result.download_url) {
-            audioUrl = `https://api.fabdl.com/${convertRes.data.result.download_url}`;
-          }
+    if (ytdlRes && ytdlRes.data && ytdlRes.data.data && ytdlRes.data.data.dl) {
+      audioUrl = ytdlRes.data.data.dl;
+    } else {
+      // Método de respaldo universal
+      const fallbackRes = await axios.get(`https://ytdownloader.nvidiot.workers.dev/api/search?q=${encodeURIComponent(busqueda)}`);
+      if (fallbackRes.data && fallbackRes.data[0] && fallbackRes.data[0].url) {
+        const videoUrl = fallbackRes.data[0].url;
+        const mp3Res = await axios.get(`https://api.vreden.web.id/api/ytmp3?url=${encodeURIComponent(videoUrl)}`);
+        if (mp3Res.data && mp3Res.data.result && mp3Res.data.result.download) {
+          audioUrl = mp3Res.data.result.download.url || mp3Res.data.result.download;
         }
-      } catch (e) {
-        console.log("Servidor 2 falló.");
       }
     }
 
-    // Enviar el archivo si alguno de los intentos funcionó
     if (audioUrl) {
       await ctx.replyWithAudio(
         { url: audioUrl },
         { title: titulo, performer: artista }
       );
     } else {
-      ctx.reply("Los servidores de descarga están saturados en este momento. Intenta nuevamente en unos minutos.");
+      ctx.reply("No se pudo obtener el archivo de audio. Intenta enviar el nombre del tema directamente.");
     }
 
   } catch (error) {
     console.error("Error general:", error?.message);
-    ctx.reply("No se pudo obtener la información de esta canción. Revisa el enlace.");
+    ctx.reply("Ocurrió un error al procesar la descarga. Reintenta en unos instantes.");
   }
 });
 
-// Servidor Express
+// Servidor Express para Render
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
