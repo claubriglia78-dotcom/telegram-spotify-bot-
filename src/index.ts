@@ -1,11 +1,6 @@
 import { Telegraf } from 'telegraf';
 import express from 'express';
-import ytSearch from 'yt-search';
-import ytdl from '@distube/ytdl-core';
-import fetch from 'node-fetch';
-import spotifyUrlInfo from 'spotify-url-info';
-
-const { getDetails } = spotifyUrlInfo(fetch);
+import axios from 'axios';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 
@@ -17,47 +12,45 @@ const bot = new Telegraf(BOT_TOKEN);
 
 function extraerURLSpotify(texto: string): string | null {
   const match = texto.match(/https?:\/\/(open\.spotify\.com\/track\/[a-zA-Z0-9]+)/);
-  return match ? `https://${match[1]}` : null;
+  return match ? match[0] : null;
 }
 
 bot.on('text', async (ctx) => {
   const url = extraerURLSpotify(ctx.message.text);
   if (!url) return;
 
-  await ctx.reply("Buscando y procesando la canción ⌛");
+  await ctx.reply("Procesando descarga ⌛");
 
   try {
-    // 1. Obtener detalles del tema desde Spotify
-    const details: any = await getDetails(url);
-    const titulo = details.preview?.title || "Canción";
-    const artista = details.preview?.artist || "";
-    const busqueda = `${titulo} ${artista} audio`;
+    // Petición a la API pública de Cobalt
+    const response = await axios.post('https://api.cobalt.tools/api/json', {
+      url: url,
+      downloadMode: 'audio',
+      audioFormat: 'mp3'
+    }, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0'
+      }
+    });
 
-    // 2. Buscar el video en YouTube
-    const searchResult = await ytSearch(busqueda);
-    const video = searchResult.videos[0];
+    const data = response.data;
 
-    if (!video) {
-      return ctx.reply("No se encontró el audio de esta canción.");
+    if (data && data.url) {
+      await ctx.replyWithAudio(
+        { url: data.url },
+        { title: data.filename || "Canción" }
+      );
+    } else if (data && data.status === 'picker' && data.picker && data.picker.length > 0) {
+      await ctx.replyWithAudio({ url: data.picker[0].url });
+    } else {
+      ctx.reply("No se pudo procesar este enlace. Intenta con otra canción.");
     }
-
-    // 3. Obtener el enlace directo de audio de YouTube
-    const info = await ytdl.getInfo(video.url);
-    const format = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
-
-    if (!format || !format.url) {
-      return ctx.reply("No se pudo extraer el archivo de audio.");
-    }
-
-    // 4. Enviar el audio a Telegram
-    await ctx.replyWithAudio(
-      { url: format.url },
-      { title: titulo, performer: artista }
-    );
 
   } catch (error: any) {
-    console.error("Error al procesar:", error);
-    ctx.reply("No se pudo obtener la canción. Asegúrate de que el enlace sea válido.");
+    console.error("Error en Cobalt:", error?.response?.data || error.message);
+    ctx.reply("Error al descargar. Asegúrate de que la canción esté disponible públicamente.");
   }
 });
 
@@ -69,4 +62,3 @@ app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
 bot.launch();
 console.log("Bot iniciado");
-
