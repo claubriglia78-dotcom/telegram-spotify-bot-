@@ -22,44 +22,36 @@ bot.on('text', async (ctx) => {
   await ctx.reply("Procesando canción ⌛");
 
   try {
-    // 1. Obtener información oficial del tema vía Spotify oEmbed
-    const oembedResponse = await axios.get(`https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`);
-    const titulo = oembedResponse.data.title || "Canción";
-    const artista = oembedResponse.data.author_name || "Artista";
-    const busqueda = `${artista} - ${titulo}`;
+    // 1. Obtener datos de Spotify mediante oEmbed
+    const oembedRes = await axios.get(`https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`);
+    const titulo = oembedRes.data.title || "Canción";
+    const artista = oembedRes.data.author_name || "Artista";
+    const busqueda = `${artista} ${titulo}`;
 
     await ctx.reply(`Buscando audio para: **${busqueda}**...`, { parse_mode: 'Markdown' });
 
-    // 2. Descargar el audio usando API de búsqueda y descarga directa
-    const downloadApiUrl = `https://api.fabdl.com/spotify/get?url=${encodeURIComponent(spotifyUrl)}`;
-    const res = await axios.get(downloadApiUrl);
+    // 2. Buscar y obtener MP3 a través de una API de YouTube alternativa y estable
+    const searchApi = `https://api.vreden.web.id/api/ytmp3?query=${encodeURIComponent(busqueda)}`;
+    const downloadRes = await axios.get(searchApi);
 
-    if (res.data && res.data.result) {
-      const gid = res.data.result.gid;
-      const id = res.data.result.id;
-      const convertUrl = `https://api.fabdl.com/spotify/mp3-convert-task/${gid}/${id}`;
+    if (downloadRes.data && downloadRes.data.result && downloadRes.data.result.download) {
+      const audioUrl = downloadRes.data.result.download.url || downloadRes.data.result.download;
       
-      const convertRes = await axios.get(convertUrl);
-      if (convertRes.data && convertRes.data.result && convertRes.data.result.download_url) {
-        const fileUrl = `https://api.fabdl.com/${convertRes.data.result.download_url}`;
-        
-        return await ctx.replyWithAudio(
-          { url: fileUrl },
-          { title: titulo, performer: artista }
-        );
-      }
+      await ctx.replyWithAudio(
+        { url: audioUrl },
+        { title: titulo, performer: artista }
+      );
+    } else {
+      ctx.reply("No se pudo obtener el audio. Intenta con otra canción.");
     }
 
-    // Método de respaldo si el servidor principal requiere espera
-    ctx.reply("No se pudo obtener el archivo de audio directo. Intenta con otro enlace.");
-
   } catch (error) {
-    console.error("Error al procesar:", error?.response?.data || error.message);
-    ctx.reply("Ocurrió un error al procesar el enlace. Verifica que la canción exista.");
+    console.error("Error en proceso:", error?.response?.data || error.message);
+    ctx.reply("Hubo un error al descargar. Intenta nuevamente en unos instantes.");
   }
 });
 
-// Servidor Web para mantener el servicio activo en Render
+// Servidor Web para Render
 const app = express();
 app.get('/', (_req, res) => res.send("Bot activo 24/7"));
 const PORT = process.env.PORT || 3000;
@@ -67,3 +59,4 @@ app.listen(PORT, () => console.log(`Servidor iniciado en puerto ${PORT}`));
 
 bot.launch();
 console.log("Bot iniciado correctamente");
+
