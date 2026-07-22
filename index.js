@@ -11,6 +11,7 @@ if (!BOT_TOKEN) {
 const bot = new Telegraf(BOT_TOKEN);
 
 function extraerURLSpotify(texto) {
+  if (!texto) return null;
   const match = texto.match(/https?:\/\/(open\.spotify\.com\/track\/[a-zA-Z0-9]+)/);
   return match ? match[0] : null;
 }
@@ -22,7 +23,6 @@ bot.on('text', async (ctx) => {
   await ctx.reply("Procesando canción ⌛");
 
   try {
-    // 1. Obtener datos de Spotify mediante oEmbed
     const oembedRes = await axios.get(`https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`);
     const titulo = oembedRes.data.title || "Canción";
     const artista = oembedRes.data.author_name || "Artista";
@@ -30,7 +30,6 @@ bot.on('text', async (ctx) => {
 
     await ctx.reply(`Buscando audio para: **${busqueda}**...`, { parse_mode: 'Markdown' });
 
-    // 2. Buscar y obtener MP3 a través de una API de YouTube alternativa y estable
     const searchApi = `https://api.vreden.web.id/api/ytmp3?query=${encodeURIComponent(busqueda)}`;
     const downloadRes = await axios.get(searchApi);
 
@@ -51,12 +50,31 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Servidor Web para Render
+// Configuración de Servidor Express + Webhook para Render
 const app = express();
-app.get('/', (_req, res) => res.send("Bot activo 24/7"));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor iniciado en puerto ${PORT}`));
 
-bot.launch();
-console.log("Bot iniciado correctamente");
+app.use(express.json());
 
+// Endpoint para el Webhook de Telegram
+app.use(bot.webhookCallback('/secret-path'));
+
+app.get('/', (_req, res) => res.send("Bot activo 24/7"));
+
+app.listen(PORT, async () => {
+  console.log(`Servidor iniciado en puerto ${PORT}`);
+  // Usar polling de forma segura atrapando errores para que Render no muera
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    bot.launch({ dropPendingUpdates: true }).catch(err => {
+      console.log("Error controlado al iniciar Polling:", err.message);
+    });
+    console.log("Bot iniciado exitosamente");
+  } catch (e) {
+    console.log("Error al limpiar webhook:", e.message);
+  }
+});
+
+// Manejo seguro de apagado
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
