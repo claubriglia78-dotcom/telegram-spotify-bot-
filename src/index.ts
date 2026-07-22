@@ -1,49 +1,64 @@
-import { Telegraf } from "telegraf";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import fs from "fs";
-import path from "path";
-import express from "express";
+import { Telegraf } from 'telegraf';
+import express from 'express';
+import axios from 'axios';
 
-const execFileAsync = promisify(execFile);
-const token = process.env["TELEGRAM_BOT_TOKEN"]!;
-const bot = new Telegraf(token);
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 
-function extractSpotifyUrl(text: string): string | null {
-  const match = text.match(/https?:\/\/open\.spotify\.com\/track\/[a-zA-Z0-9]+/);
-  return match? match[0] : null;
+if (!BOT_TOKEN) {
+  throw new Error("No se encontró el token del bot en las variables de entorno.");
 }
 
-bot.on("text", async (ctx) => {
-  const url = extractSpotifyUrl(ctx.message.text);
-  if (!url) return ctx.reply("Envíame un link de Spotify 🎵");
+const bot = new Telegraf(BOT_TOKEN);
 
-  await ctx.reply("Descargando... espera 20 seg ⏳");
+// Expresión regular para extraer links de Spotify
+function extraerURLSpotify(texto: string): string | null {
+  const match = texto.match(/https?:\/\/(open\.spotify\.com\/track\/[a-zA-Z0-9]+)/);
+  return match ? `https://${match[1]}` : null;
+}
 
-  const tempDir = path.join("/tmp", `spot_${Date.now()}`);
-  fs.mkdirSync(tempDir);
+bot.on('text', async (ctx) => {
+  const url = extraerURLSpotify(ctx.message.text);
+  if (!url) return;
+
+  await ctx.reply("Descargando... espera unos segundos ⌛");
 
   try {
-    await execFileAsync("spotdl", ["download", url, "--output", tempDir]);
-    const files = fs.readdirSync(tempDir).filter(f => f.endsWith(".mp3"));
-    if (files.length === 0) return ctx.reply("No se pudo descargar");
+    // Llamada a API de descarga directa de Spotify
+    const apiUrl = `https://api.fabdl.com/spotify/get?url=${encodeURIComponent(url)}`;
+    const response = await axios.get(apiUrl);
 
-    const filePath = path.join(tempDir, files[0]);
-    await ctx.replyWithAudio({ source: filePath });
-    fs.unlinkSync(filePath);
-  } catch (e: any) {
-    ctx.reply("Error: " + e.message);
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    if (!response.data || !response.data.result) {
+      return ctx.reply("No se pudo obtener la información de la canción.");
+    }
+
+    const result = response.data.result;
+    const downloadConvertUrl = `https://api.fabdl.com/spotify/mp3-convert-task/${result.gid}/${result.id}`;
+    const convertResponse = await axios.get(downloadConvertUrl);
+
+    if (!convertResponse.data || !convertResponse.data.result || !convertResponse.data.result.download_url) {
+      return ctx.reply("No se pudo procesar la descarga de la canción.");
+    }
+
+    const downloadUrl = `https://api.fabdl.com/${convertResponse.data.result.download_url}`;
+
+    // Enviar el audio directamente por Telegram a través del link
+    await ctx.replyWithAudio(
+      { url: downloadUrl },
+      { title: result.name, performer: result.artists }
+    );
+
+  } catch (error: any) {
+    console.error("Error en descarga:", error);
+    ctx.reply("No se pudo descargar la canción. Intenta nuevamente.");
   }
 });
 
-bot.catch((err) => console.error("Error", err));
-
-// SERVIDOR PARA RAILWAY
+// Servidor web express para Render
 const app = express();
-app.get("/", (req, res) => res.send("Bot activo 24/7"));
-app.listen(process.env.PORT || 3000, () => console.log("Web server ok"));
+app.get('/', (_req, res) => res.send("Bot activo 24/7"));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor activo en puerto ${PORT}`));
 
 bot.launch();
 console.log("Bot iniciado");
+
