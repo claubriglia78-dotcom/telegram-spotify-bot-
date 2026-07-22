@@ -1,12 +1,3 @@
-import * as http from 'http';
-
-const port = process.env.PORT || 8000;
-
-http.createServer((_req, res) => {
-  res.write("Bot activo 24/7");
-  res.end();
-}).listen(port);
-
 import { Telegraf } from "telegraf";
 import { execFile } from "child_process";
 import { promisify } from "util";
